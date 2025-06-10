@@ -24,6 +24,7 @@ func isAuthorizedToModify(role int) bool {
 type BookRequest struct {
 	Title           string `json:"title" binding:"required"`
 	Author          string `json:"author" binding:"required"`
+	Description     string `json:"description"`
 	Genre           string `json:"genre" binding:"required"`
 	PublicationDate string `json:"publication_date"`
 	TotalCopies     int    `json:"total_copies"`
@@ -97,6 +98,7 @@ func CreateBook(c *gin.Context) {
 	book := models.Book{
 		Title:           req.Title,
 		Author:          req.Author,
+		Description:     req.Description,
 		PublicationDate: pubDate,
 		Genre:           req.Genre,
 		TotalCopies:     req.TotalCopies,
@@ -117,6 +119,7 @@ func CreateBook(c *gin.Context) {
 			"book_id":         book.ID,
 			"title":           book.Title,
 			"author":          book.Author,
+			"description":     book.Description,
 			"genre":           book.Genre,
 			"publicationDate": book.PublicationDate,
 			"totalCopies":     book.TotalCopies,
@@ -208,6 +211,7 @@ func UpdateBook(c *gin.Context) {
 
 	book.Title = req.Title
 	book.Author = req.Author
+	book.Description = req.Description
 	book.Genre = req.Genre
 	book.PublicationDate = pubDate
 	book.TotalCopies = req.TotalCopies
@@ -269,6 +273,7 @@ func DeleteBook(c *gin.Context) {
 			"operation":   "delete",
 			"book_id":     book.ID,
 			"title":       book.Title,
+			"description": book.Description,
 			"overdueDays": book.OverdueDays,
 			"userRole":    userRole,
 			"userName":    userName,
