@@ -22,5 +22,6 @@ func Connect() {
 	}
 	fmt.Println("Successfully connected to the database")
 	DB.AutoMigrate(&models.Book{}, &models.BorrowRecord{})
+	DB.AutoMigrate(&models.BorrowRequest{})
 
 }
