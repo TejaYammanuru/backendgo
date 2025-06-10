@@ -365,29 +365,30 @@ func BorrowRequest(c *gin.Context) {
 }
 
 func GetAllBorrowRequests(c *gin.Context) {
-	log.Println("GetAllBorrowRequests handler triggered")
+	log.Println("📄 GetAllBorrowRequests handler triggered")
 
 	userRole := c.MustGet("userRole").(int)
 	if userRole != 1 {
-		log.Println("Access denied: Only librarians can view borrow requests")
+		log.Println("❌ Access denied: Only librarians can view borrow requests")
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only librarians can view borrow requests"})
 		return
 	}
 
 	var requests []models.BorrowRequest
 	if err := database.DB.
+		Where("status = ?", "pending"). // ✅ filter only pending requests
 		Preload("User", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "name", "email", "role")
 		}).
 		Preload("Book").
 		Order("requested_at desc").
 		Find(&requests).Error; err != nil {
-		log.Printf(" Failed to fetch borrow requests: %v", err)
+		log.Printf("❌ Failed to fetch borrow requests: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch requests"})
 		return
 	}
 
-	log.Printf("%d borrow requests fetched", len(requests))
+	log.Printf("✅ %d pending borrow requests fetched", len(requests))
 	c.JSON(http.StatusOK, requests)
 }
 
@@ -680,4 +681,118 @@ func AcknowledgeReturn(c *gin.Context) {
 	tx.Commit()
 
 	c.JSON(http.StatusOK, gin.H{"message": "Book return acknowledged"})
+}
+
+func GetMyBorrowRequests(c *gin.Context) {
+	log.Println("📩 GetMyBorrowRequests handler triggered")
+
+	userID := c.MustGet("userID").(uint)
+
+	var requests []models.BorrowRequest
+	err := database.DB.
+		Where("user_id = ?", userID).
+		Preload("Book").
+		Order("requested_at desc").
+		Find(&requests).Error
+
+	if err != nil {
+		log.Printf("❌ Failed to fetch user borrow requests: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch borrow requests"})
+		return
+	}
+
+	log.Printf("✅ %d borrow requests fetched for user %d", len(requests), userID)
+	c.JSON(http.StatusOK, requests)
+}
+
+func GetBooksNotYetReturned(c *gin.Context) {
+	userID := c.MustGet("userID").(uint)
+
+	var borrowRecords []models.BorrowRecord
+
+	err := database.DB.
+		Where("user_id = ? AND returned_at IS NULL", userID).
+		Preload("Book").
+		Order("borrowed_at desc").
+		Find(&borrowRecords).Error
+
+	if err != nil {
+		log.Printf("❌ Failed to fetch borrowed books: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch active borrow records"})
+		return
+	}
+
+	type BookWithDueInfo struct {
+		models.BorrowRecord
+		DaysLeft int `json:"days_left"`
+	}
+
+	var result []BookWithDueInfo
+	now := time.Now()
+
+	for _, record := range borrowRecords {
+		dueDays := record.Book.OverdueDays
+		daysPassed := int(now.Sub(record.BorrowedAt).Hours() / 24)
+		daysLeft := dueDays - daysPassed
+		if daysLeft < 0 {
+			daysLeft = 0
+		}
+
+		result = append(result, BookWithDueInfo{
+			BorrowRecord: record,
+			DaysLeft:     daysLeft,
+		})
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+func GetBooksReturnRequestedNotAcknowledged(c *gin.Context) {
+	userID := c.MustGet("userID").(uint)
+
+	var records []models.BorrowRecord
+
+	err := database.DB.
+		Where("user_id = ? AND return_requested = ? AND returned_at IS NULL", userID, true).
+		Preload("Book").
+		Order("borrowed_at desc").
+		Find(&records).Error
+
+	if err != nil {
+		log.Printf("❌ Failed to fetch return requested books: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch return requested books"})
+		return
+	}
+
+	c.JSON(http.StatusOK, records)
+}
+
+func GetReturnPendingRecords(c *gin.Context) {
+	log.Println("📄 GetReturnPendingRecords handler triggered")
+
+	userRole := c.MustGet("userRole").(int)
+	if userRole != 1 {
+		log.Println("❌ Access denied: Only librarians can view return requests")
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only librarians can access this resource"})
+		return
+	}
+
+	var records []models.BorrowRecord
+	err := database.DB.
+		Where("return_requested = ? AND returned_at IS NULL", true).
+		Preload("User", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name", "email", "role")
+		}).
+		Preload("Book").
+		Order("borrowed_at desc").
+		Find(&records).Error
+
+	if err != nil {
+		log.Printf("❌ Failed to fetch return-pending records: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch return requests"})
+		return
+	}
+
+	log.Printf("✅ %d return-pending records fetched", len(records))
+	c.JSON(http.StatusOK, records)
 }

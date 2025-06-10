@@ -11,9 +11,9 @@ type BorrowRequest struct {
 	BookID uint `json:"-"`
 	Book   Book `gorm:"foreignKey:BookID" json:"book"`
 
-	Status          string     `json:"status"` // "pending", "approved", "rejected"
+	Status          string     `json:"status"`
 	RequestedAt     time.Time  `json:"requested_at"`
 	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
 	RejectedAt      *time.Time `json:"rejected_at,omitempty"`
-	RejectionReason *string    `json:"rejection_reason,omitempty"` // ✅ New field
+	RejectionReason *string    `json:"rejection_reason,omitempty"`
 }

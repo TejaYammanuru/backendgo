@@ -24,6 +24,10 @@ func BorrowRoutes(router *gin.Engine) {
 		borrow.POST("/reject", controllers.RejectBorrowRequest)
 		borrow.POST("/returnreq", controllers.ReturnRequest)
 		borrow.POST("/returnack", controllers.AcknowledgeReturn)
+		borrow.GET("/status", controllers.GetMyBorrowRequests)
+		borrow.GET("/not-returned-books", controllers.GetBooksNotYetReturned)
+		borrow.GET("/return-pending", controllers.GetBooksReturnRequestedNotAcknowledged)
+		borrow.GET("/all-return-pending", controllers.GetReturnPendingRecords)
 
 	}
 }
