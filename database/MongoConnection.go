@@ -16,6 +16,7 @@ var BookLogsCollection *mongo.Collection
 var LibrarianLogsCollection *mongo.Collection
 var BorrowingLogsCollection *mongo.Collection
 var AuthLogsCollection *mongo.Collection
+var ReturnLogsCollection *mongo.Collection
 
 func ConnectMongo() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -38,6 +39,7 @@ func ConnectMongo() {
 	LibrarianLogsCollection = client.Database("library_portal_logging").Collection("librarian_logs")
 	BorrowingLogsCollection = client.Database("library_portal_logging").Collection("borrowing_logs")
 	AuthLogsCollection = client.Database("library_portal_logging").Collection("auth_logs")
+	ReturnLogsCollection = client.Database("library_portal_logging").Collection("return_logs")
 
 	_, err = AuthLogsCollection.InsertOne(ctx, bson.M{
 		"test": "MongoDB connected and auth_logs working",

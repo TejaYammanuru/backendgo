@@ -304,6 +304,8 @@ func BorrowRequest(c *gin.Context) {
 
 	userRole := c.MustGet("userRole").(int)
 	userID := c.MustGet("userID").(uint)
+	userName := c.MustGet("userName").(string)
+	userEmail := c.MustGet("userEmail").(string)
 	log.Printf("🔐 UserID: %d, Role: %d\n", userID, userRole)
 
 	if userRole != 0 {
@@ -360,6 +362,22 @@ func BorrowRequest(c *gin.Context) {
 		return
 	}
 
+	// MongoDB log
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	logEntry := map[string]interface{}{
+		"action":     "borrow_request_created",
+		"user_id":    userID,
+		"user_name":  userName,
+		"user_email": userEmail,
+		"book_id":    req.BookID,
+		"book_title": book.Title,
+		"time":       time.Now(),
+	}
+	if _, err := database.BorrowingLogsCollection.InsertOne(ctx, logEntry); err != nil {
+		log.Printf("⚠️ Failed to insert Mongo log: %v", err)
+	}
+
 	log.Println("✅ Borrow request created successfully")
 	c.JSON(http.StatusOK, gin.H{"message": "Book request submitted successfully"})
 }
@@ -396,8 +414,8 @@ func ApproveBorrowRequest(c *gin.Context) {
 	log.Println("✅ ApproveBorrowRequest handler triggered")
 
 	userRole := c.MustGet("userRole").(int)
-	librarianName, _ := c.Get("userName")
-	librarianEmail, _ := c.Get("userEmail")
+	librarianName := c.MustGet("userName").(string)
+	librarianEmail := c.MustGet("userEmail").(string)
 
 	if userRole != 1 {
 		log.Println("❌ Access denied: Only librarians can approve borrow requests")
@@ -464,7 +482,7 @@ func ApproveBorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// Update only relevant fields
+	// Update borrow request
 	now := time.Now()
 	if err := tx.Model(&models.BorrowRequest{}).
 		Where("id = ?", req.RequestID).
@@ -505,8 +523,8 @@ func RejectBorrowRequest(c *gin.Context) {
 	log.Println("❌ RejectBorrowRequest handler triggered")
 
 	userRole := c.MustGet("userRole").(int)
-	librarianName, _ := c.Get("userName")
-	librarianEmail, _ := c.Get("userEmail")
+	librarianName := c.MustGet("userName").(string)
+	librarianEmail := c.MustGet("userEmail").(string)
 
 	if userRole != 1 {
 		log.Println("❌ Access denied: Only librarians can reject borrow requests")
@@ -516,7 +534,7 @@ func RejectBorrowRequest(c *gin.Context) {
 
 	var req struct {
 		RequestID uint   `json:"request_id"`
-		Reason    string `json:"reason"` // ✅ Added reason
+		Reason    string `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.RequestID == 0 {
 		log.Printf("❌ Invalid request payload: %v", err)
@@ -538,12 +556,11 @@ func RejectBorrowRequest(c *gin.Context) {
 	}
 
 	now := time.Now()
-	reason := req.Reason // capture locally
 
 	if err := database.DB.Model(&borrowRequest).Updates(map[string]interface{}{
 		"status":           "rejected",
 		"rejected_at":      now,
-		"rejection_reason": reason,
+		"rejection_reason": req.Reason,
 	}).Error; err != nil {
 		log.Printf("❌ Failed to update borrow request: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update request"})
@@ -567,7 +584,7 @@ func RejectBorrowRequest(c *gin.Context) {
 		"user_email":       user.Email,
 		"rejected_by":      librarianName,
 		"rejector_email":   librarianEmail,
-		"rejection_reason": reason,
+		"rejection_reason": req.Reason,
 		"time":             now,
 	}
 	if _, err := database.BorrowingLogsCollection.InsertOne(ctx, logEntry); err != nil {
@@ -581,6 +598,8 @@ func RejectBorrowRequest(c *gin.Context) {
 func ReturnRequest(c *gin.Context) {
 	userID := c.MustGet("userID").(uint)
 	userRole := c.MustGet("userRole").(int)
+	userName := c.MustGet("userName").(string)
+	userEmail := c.MustGet("userEmail").(string)
 
 	if userRole != 0 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only members can request returns"})
@@ -601,7 +620,6 @@ func ReturnRequest(c *gin.Context) {
 		return
 	}
 
-	// Check if record belongs to the requesting member
 	if record.UserID != userID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Unauthorized access to this borrow record"})
 		return
@@ -623,11 +641,29 @@ func ReturnRequest(c *gin.Context) {
 		return
 	}
 
+	// MongoDB log
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	logEntry := map[string]interface{}{
+		"action":     "return_requested",
+		"user_id":    userID,
+		"user_name":  userName,
+		"user_email": userEmail,
+		"borrow_id":  req.BorrowID,
+		"time":       time.Now(),
+	}
+	if _, err := database.MongoClient.Database("library_portal_logging").
+		Collection("return_logs").InsertOne(ctx, logEntry); err != nil {
+		log.Printf("⚠️ Failed to insert return log: %v", err)
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "Return request submitted"})
 }
 
 func AcknowledgeReturn(c *gin.Context) {
 	userRole := c.MustGet("userRole").(int)
+	librarianName := c.MustGet("userName").(string)
+	librarianEmail := c.MustGet("userEmail").(string)
 
 	if userRole != 1 {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only librarians can acknowledge returns"})
@@ -679,6 +715,28 @@ func AcknowledgeReturn(c *gin.Context) {
 	}
 
 	tx.Commit()
+
+	// Fetch user info for logging
+	var user models.User
+	_ = database.DB.Select("id", "name", "email").First(&user, record.UserID)
+
+	// MongoDB log
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	logEntry := map[string]interface{}{
+		"action":          "return_acknowledged",
+		"user_id":         user.ID,
+		"user_name":       user.Name,
+		"user_email":      user.Email,
+		"borrow_id":       req.BorrowID,
+		"acknowledged_by": librarianName,
+		"ack_email":       librarianEmail,
+		"time":            now,
+	}
+	if _, err := database.MongoClient.Database("library_portal_logging").
+		Collection("return_logs").InsertOne(ctx, logEntry); err != nil {
+		log.Printf("⚠️ Failed to insert return log: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Book return acknowledged"})
 }
