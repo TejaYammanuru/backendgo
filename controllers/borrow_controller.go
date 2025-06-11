@@ -13,151 +13,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// func BorrowBook(c *gin.Context) {
-// 	userRole := c.MustGet("userRole").(int)
-// 	userName, _ := c.Get("userName")
-// 	userEmail, _ := c.Get("userEmail")
-// 	if userRole != 0 {
-// 		c.JSON(http.StatusForbidden, gin.H{"error": "Only members can borrow books"})
-// 		return
-// 	}
-
-// 	var req struct {
-// 		BookID uint `json:"book_id"`
-// 	}
-// 	if err := c.ShouldBindJSON(&req); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-// 		return
-// 	}
-
-// 	userID := c.MustGet("userID").(uint)
-
-// 	var book models.Book
-// 	if err := database.DB.First(&book, req.BookID).Error; err != nil {
-// 		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
-// 		return
-// 	}
-
-// 	if book.CopiesAvailable < 1 {
-// 		c.JSON(http.StatusConflict, gin.H{"error": "No copies available"})
-// 		return
-// 	}
-
-// 	borrowRecord := models.BorrowRecord{
-// 		UserID:     userID,
-// 		BookID:     req.BookID,
-// 		BorrowedAt: time.Now(),
-// 	}
-
-// 	tx := database.DB.Begin()
-
-// 	if err := tx.Create(&borrowRecord).Error; err != nil {
-// 		tx.Rollback()
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create borrow record"})
-// 		return
-// 	}
-
-// 	book.CopiesAvailable -= 1
-// 	if err := tx.Save(&book).Error; err != nil {
-// 		tx.Rollback()
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update book availability"})
-// 		return
-// 	}
-
-// 	tx.Commit()
-// 	c.JSON(http.StatusOK, gin.H{"message": "Book borrowed successfully"})
-
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	logEntry := map[string]interface{}{
-// 		"user_id":    userID,
-// 		"book_id":    req.BookID,
-// 		"action":     "borrowed",
-// 		"time":       time.Now(),
-// 		"book_title": book.Title,
-// 		"user_name":  userName,
-// 		"email":      userEmail,
-// 	}
-
-// 	if _, err := database.BorrowingLogsCollection.InsertOne(ctx, logEntry); err != nil {
-// 		log.Printf("Failed to insert borrowing log: %v", err)
-// 	}
-// }
-
-// func ReturnBook(c *gin.Context) {
-// 	userRole := c.MustGet("userRole").(int)
-// 	userName, _ := c.Get("userName")
-// 	userEmail, _ := c.Get("userEmail")
-// 	if userRole != 0 {
-// 		c.JSON(http.StatusForbidden, gin.H{"error": "Only members can return books"})
-// 		return
-// 	}
-
-// 	var req struct {
-// 		BookID uint `json:"book_id"`
-// 	}
-// 	if err := c.ShouldBindJSON(&req); err != nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
-// 		return
-// 	}
-
-// 	userID := c.MustGet("userID").(uint)
-
-// 	var borrowRecord models.BorrowRecord
-// 	err := database.DB.
-// 		Where("user_id = ? AND book_id = ? AND returned_at IS NULL", userID, req.BookID).
-// 		Order("borrowed_at desc").
-// 		First(&borrowRecord).Error
-
-// 	if err != nil {
-// 		c.JSON(http.StatusNotFound, gin.H{"error": "No active borrow record found"})
-// 		return
-// 	}
-
-// 	now := time.Now()
-// 	borrowRecord.ReturnedAt = &now
-
-// 	tx := database.DB.Begin()
-
-// 	if err := tx.Save(&borrowRecord).Error; err != nil {
-// 		tx.Rollback()
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update borrow record"})
-// 		return
-// 	}
-
-// 	if err := tx.Model(&models.Book{}).Where("id = ?", req.BookID).Update("copies_available", gorm.Expr("copies_available + ?", 1)).Error; err != nil {
-// 		tx.Rollback()
-// 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not update book availability"})
-// 		return
-// 	}
-
-// 	tx.Commit()
-// 	c.JSON(http.StatusOK, gin.H{"message": "Book returned successfully"})
-
-// 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-// 	defer cancel()
-
-// 	var book models.Book
-// 	if err := database.DB.First(&book, req.BookID).Error; err != nil {
-// 		log.Printf("Failed to fetch book title for return log: %v", err)
-// 	}
-
-// 	logEntry := map[string]interface{}{
-// 		"user_id":    userID,
-// 		"book_id":    req.BookID,
-// 		"book_title": book.Title,
-// 		"action":     "returned",
-// 		"time":       time.Now(),
-// 		"user_name":  userName,
-// 		"email":      userEmail,
-// 	}
-
-// 	if _, err := database.BorrowingLogsCollection.InsertOne(ctx, logEntry); err != nil {
-// 		log.Printf("Failed to insert return log: %v", err)
-// 	}
-// }
-
 func BorrowingHistory(c *gin.Context) {
 	fmt.Println("BorrowingHistory handler called")
 
@@ -949,4 +804,74 @@ func GetLibrarianDashboardStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+func GetMemberNotifications(c *gin.Context) {
+	userID := c.MustGet("userID").(uint)
+	userRole := c.MustGet("userRole").(int)
+
+	if userRole != 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only members can view notifications"})
+		return
+	}
+
+	now := time.Now()
+	fiveDaysAgo := now.AddDate(0, 0, -5)
+	twoDaysAgo := now.AddDate(0, 0, -2)
+	oneMonthAgo := now.AddDate(0, -1, 0)
+
+	var newBooks, updatedBooks, deletedBooks []models.Book
+	var dueSoon []models.BorrowRecord
+
+	db := database.DB
+
+	db.Where("created_at >= ?", twoDaysAgo).Find(&newBooks)
+
+	db.Where("updated_at >= ? AND updated_at != created_at", twoDaysAgo).Find(&updatedBooks)
+
+	db.Unscoped().Where("deleted_at IS NOT NULL AND deleted_at >= ?", fiveDaysAgo).Find(&deletedBooks)
+
+	db.Preload("Book").Where("user_id = ? AND returned_at IS NULL", userID).
+		Find(&dueSoon)
+	dueNotifications := []string{}
+	for _, record := range dueSoon {
+		dueDate := record.BorrowedAt.AddDate(0, 0, record.Book.OverdueDays)
+		if dueDate.After(now) && dueDate.Before(now.AddDate(0, 0, 4)) {
+			daysLeft := int(dueDate.Sub(now).Hours() / 24)
+			dueNotifications = append(dueNotifications,
+				fmt.Sprintf("'%s' is due in %d day(s). Please return on time.", record.Book.Title, daysLeft))
+		}
+	}
+
+	type BorrowCount struct {
+		BookID uint
+		Title  string
+		Count  int
+	}
+	var popular []BorrowCount
+	db.Table("borrow_records").
+		Select("book_id, books.title, COUNT(*) as count").
+		Joins("JOIN books ON books.id = borrow_records.book_id").
+		Where("borrowed_at >= ?", oneMonthAgo).
+		Group("book_id, books.title").
+		Order("count DESC").
+		Limit(5).
+		Scan(&popular)
+
+	messages := []string{}
+	for _, book := range newBooks {
+		messages = append(messages, fmt.Sprintf("New Book Added: '%s'", book.Title))
+	}
+	for _, book := range updatedBooks {
+		messages = append(messages, fmt.Sprintf("Book Updated: '%s'", book.Title))
+	}
+	for _, book := range deletedBooks {
+		messages = append(messages, fmt.Sprintf("Book Removed: '%s'", book.Title))
+	}
+	messages = append(messages, dueNotifications...)
+	for _, pop := range popular {
+		messages = append(messages, fmt.Sprintf("Popular Book: '%s' borrowed %d time(s) last month", pop.Title, pop.Count))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"notifications": messages})
 }

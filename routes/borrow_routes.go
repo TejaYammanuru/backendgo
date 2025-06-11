@@ -28,6 +28,7 @@ func BorrowRoutes(router *gin.Engine) {
 		borrow.GET("/return-pending", controllers.GetBooksReturnRequestedNotAcknowledged)
 		borrow.GET("/all-return-pending", controllers.GetReturnPendingRecords)
 		borrow.GET("/lib-stats", controllers.GetLibrarianDashboardStats)
+		borrow.GET("/member-notifications", controllers.GetMemberNotifications)
 
 	}
 }
