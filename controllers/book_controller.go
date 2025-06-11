@@ -56,7 +56,7 @@ func CreateBook(c *gin.Context) {
 
 	// Validate overdue days
 	if req.OverdueDays <= 0 {
-		req.OverdueDays = 14 // Default to 14 days if not provided or invalid
+		req.OverdueDays = 15
 	}
 
 	var pubDate time.Time
@@ -164,7 +164,7 @@ func UpdateBook(c *gin.Context) {
 
 	// Validate overdue days
 	if req.OverdueDays <= 0 {
-		req.OverdueDays = 14 // Default to 14 days if not provided or invalid
+		req.OverdueDays = 15
 	}
 
 	var pubDate time.Time

@@ -139,7 +139,6 @@ func GetOverdueBooks(c *gin.Context) {
 		Where("returned_at IS NULL")
 
 	if userRole == 0 {
-		// Member: only their own borrowed books
 		query = query.Where("user_id = ?", userID)
 	}
 
@@ -158,36 +157,25 @@ func GetOverdueBooks(c *gin.Context) {
 	}
 
 	now := time.Now()
-	var result []OverdueInfo
+	result := make([]OverdueInfo, 0) // 👈 ensure it's an empty array, not nil
 
 	for _, record := range records {
 		expectedReturn := record.BorrowedAt.AddDate(0, 0, record.Book.OverdueDays)
-		daysOverdue := 0
+		if now.After(expectedReturn) {
+			daysOverdue := int(now.Sub(expectedReturn).Hours() / 24)
 
-		if userRole == 1 {
-			// Librarian: include only actual overdue records
-			if now.After(expectedReturn) {
-				daysOverdue = int(now.Sub(expectedReturn).Hours() / 24)
-			} else {
-				continue // skip if not overdue
-			}
-		} else {
-			// Member: show all their unreturned books, days overdue if any
-			if now.After(expectedReturn) {
-				daysOverdue = int(now.Sub(expectedReturn).Hours() / 24)
-			}
+			result = append(result, OverdueInfo{
+				BorrowID:       record.ID,
+				User:           record.User,
+				Book:           record.Book,
+				BorrowedAt:     record.BorrowedAt,
+				ExpectedReturn: expectedReturn,
+				DaysOverdue:    daysOverdue,
+			})
 		}
-
-		result = append(result, OverdueInfo{
-			BorrowID:       record.ID,
-			User:           record.User,
-			Book:           record.Book,
-			BorrowedAt:     record.BorrowedAt,
-			ExpectedReturn: expectedReturn,
-			DaysOverdue:    daysOverdue,
-		})
 	}
 
+	// ✅ Always return an array (even if empty)
 	c.JSON(http.StatusOK, result)
 }
 
