@@ -854,3 +854,62 @@ func GetReturnPendingRecords(c *gin.Context) {
 	log.Printf("✅ %d return-pending records fetched", len(records))
 	c.JSON(http.StatusOK, records)
 }
+
+func GetLibrarianDashboardStats(c *gin.Context) {
+	userRole := c.MustGet("userRole").(int)
+	if userRole != 1 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only librarians can access dashboard"})
+		return
+	}
+
+	type DashboardStats struct {
+		TotalBooks         int64 `json:"total_books"`
+		AvailableBooks     int64 `json:"available_books"`
+		TotalMembers       int64 `json:"total_members"`
+		TotalLibrarians    int64 `json:"total_librarians"`
+		PendingBorrowCount int64 `json:"pending_borrow_count"`
+		PendingReturnCount int64 `json:"pending_return_count"`
+	}
+
+	var stats DashboardStats
+
+	// Total books
+	if err := database.DB.Model(&models.Book{}).Select("SUM(total_copies)").Scan(&stats.TotalBooks).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count total books"})
+		return
+	}
+
+	// Available books
+	if err := database.DB.Model(&models.Book{}).Select("SUM(copies_available)").Scan(&stats.AvailableBooks).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count available books"})
+		return
+	}
+
+	// Total members
+	if err := database.DB.Model(&models.User{}).Where("role = ?", 0).Count(&stats.TotalMembers).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count members"})
+		return
+	}
+
+	// Total librarians
+	if err := database.DB.Model(&models.User{}).Where("role = ?", 1).Count(&stats.TotalLibrarians).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count librarians"})
+		return
+	}
+
+	// Pending borrow requests
+	if err := database.DB.Model(&models.BorrowRequest{}).Where("status = ?", "pending").Count(&stats.PendingBorrowCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count pending borrow requests"})
+		return
+	}
+
+	// Pending return acknowledgments
+	if err := database.DB.Model(&models.BorrowRecord{}).
+		Where("return_requested = ? AND returned_at IS NULL", true).
+		Count(&stats.PendingReturnCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count pending returns"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
