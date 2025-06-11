@@ -273,30 +273,67 @@ func GetAdminDashboard(c *gin.Context) {
 
 func GetOverdueBooks(c *gin.Context) {
 	userRole := c.MustGet("userRole").(int)
+	userID := c.MustGet("userID").(uint)
 
-	if userRole != 1 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Only librarians can access overdue books"})
-		return
-	}
-
-	cutoff := time.Now().AddDate(0, 0, 0)
-
-	var overdueRecords []models.BorrowRecord
-
-	err := database.DB.
+	var records []models.BorrowRecord
+	query := database.DB.
 		Preload("Book").
 		Preload("User", func(db *gorm.DB) *gorm.DB {
 			return db.Select("id", "name", "email", "role")
 		}).
-		Where("borrowed_at <= ? AND returned_at IS NULL", cutoff).
-		Find(&overdueRecords).Error
+		Where("returned_at IS NULL")
 
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch overdue books"})
+	if userRole == 0 {
+		// Member: only their own borrowed books
+		query = query.Where("user_id = ?", userID)
+	}
+
+	if err := query.Find(&records).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch records"})
 		return
 	}
 
-	c.JSON(http.StatusOK, overdueRecords)
+	type OverdueInfo struct {
+		BorrowID       uint        `json:"borrow_id"`
+		User           models.User `json:"user"`
+		Book           models.Book `json:"book"`
+		BorrowedAt     time.Time   `json:"borrowed_at"`
+		ExpectedReturn time.Time   `json:"expected_return"`
+		DaysOverdue    int         `json:"days_overdue"`
+	}
+
+	now := time.Now()
+	var result []OverdueInfo
+
+	for _, record := range records {
+		expectedReturn := record.BorrowedAt.AddDate(0, 0, record.Book.OverdueDays)
+		daysOverdue := 0
+
+		if userRole == 1 {
+			// Librarian: include only actual overdue records
+			if now.After(expectedReturn) {
+				daysOverdue = int(now.Sub(expectedReturn).Hours() / 24)
+			} else {
+				continue // skip if not overdue
+			}
+		} else {
+			// Member: show all their unreturned books, days overdue if any
+			if now.After(expectedReturn) {
+				daysOverdue = int(now.Sub(expectedReturn).Hours() / 24)
+			}
+		}
+
+		result = append(result, OverdueInfo{
+			BorrowID:       record.ID,
+			User:           record.User,
+			Book:           record.Book,
+			BorrowedAt:     record.BorrowedAt,
+			ExpectedReturn: expectedReturn,
+			DaysOverdue:    daysOverdue,
+		})
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 func BorrowRequest(c *gin.Context) {
