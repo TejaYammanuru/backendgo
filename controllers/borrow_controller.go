@@ -157,10 +157,12 @@ func GetOverdueBooks(c *gin.Context) {
 	}
 
 	now := time.Now()
-	result := make([]OverdueInfo, 0) // 👈 ensure it's an empty array, not nil
+	result := make([]OverdueInfo, 0)
 
 	for _, record := range records {
 		expectedReturn := record.BorrowedAt.AddDate(0, 0, record.Book.OverdueDays)
+
+		// ✅ Include only if overdue
 		if now.After(expectedReturn) {
 			daysOverdue := int(now.Sub(expectedReturn).Hours() / 24)
 
@@ -175,7 +177,6 @@ func GetOverdueBooks(c *gin.Context) {
 		}
 	}
 
-	// ✅ Always return an array (even if empty)
 	c.JSON(http.StatusOK, result)
 }
 

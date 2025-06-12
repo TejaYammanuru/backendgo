@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -41,13 +40,13 @@ func ConnectMongo() {
 	AuthLogsCollection = client.Database("library_portal_logging").Collection("auth_logs")
 	ReturnLogsCollection = client.Database("library_portal_logging").Collection("return_logs")
 
-	_, err = AuthLogsCollection.InsertOne(ctx, bson.M{
-		"test": "MongoDB connected and auth_logs working",
-		"time": time.Now(),
-	})
-	if err != nil {
-		log.Fatalf(" Insert test log failed: %v", err)
-	} else {
-		fmt.Println("Test auth log inserted into MongoDB")
-	}
+	// _, err = AuthLogsCollection.InsertOne(ctx, bson.M{
+	// 	"test": "MongoDB connected and auth_logs working",
+	// 	"time": time.Now(),
+	// })
+	// if err != nil {
+	// 	log.Fatalf(" Insert test log failed: %v", err)
+	// } else {
+	// 	fmt.Println("Test auth log inserted into MongoDB")
+	// }
 }
