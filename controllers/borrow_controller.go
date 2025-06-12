@@ -3,6 +3,7 @@ package controllers
 import (
 	"OnlineLibraryPortal/database"
 	"OnlineLibraryPortal/models"
+	"OnlineLibraryPortal/utils"
 	"context"
 	"fmt"
 	"log"
@@ -379,6 +380,13 @@ func ApproveBorrowRequest(c *gin.Context) {
 
 	tx.Commit()
 
+	go utils.SendEmail(
+		borrowRequest.User.Email,
+		"Borrow Request Approved",
+		fmt.Sprintf("Hi %s,\n\nYour request to borrow '%s' has been approved.\n\nHappy Reading!\n\n- Library Team",
+			borrowRequest.User.Name, borrowRequest.Book.Title),
+	)
+
 	// MongoDB log
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -473,6 +481,14 @@ func RejectBorrowRequest(c *gin.Context) {
 	}
 
 	log.Println("✅ Borrow request rejected successfully")
+
+	go utils.SendEmail(
+		user.Email,
+		"Borrow Request Rejected",
+		fmt.Sprintf("Hi %s,\n\nYour borrow request for '%s' has been rejected.\nReason: %s\n\nRegards,\nLibrary Team",
+			user.Name, book.Title, req.Reason),
+	)
+
 	c.JSON(http.StatusOK, gin.H{"message": "Borrow request rejected successfully"})
 }
 
@@ -597,26 +613,34 @@ func AcknowledgeReturn(c *gin.Context) {
 
 	tx.Commit()
 
-	// Fetch user info for logging
 	var user models.User
-	_ = database.DB.Select("id", "name", "email").First(&user, record.UserID)
+	if err := database.DB.Select("id", "name", "email").First(&user, record.UserID).Error; err == nil {
 
-	// MongoDB log
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	logEntry := map[string]interface{}{
-		"action":          "return_acknowledged",
-		"user_id":         user.ID,
-		"user_name":       user.Name,
-		"user_email":      user.Email,
-		"borrow_id":       req.BorrowID,
-		"acknowledged_by": librarianName,
-		"ack_email":       librarianEmail,
-		"time":            now,
-	}
-	if _, err := database.MongoClient.Database("library_portal_logging").
-		Collection("return_logs").InsertOne(ctx, logEntry); err != nil {
-		log.Printf("⚠️ Failed to insert return log: %v", err)
+		go utils.SendEmail(
+			user.Email,
+			"Book Return Acknowledged",
+			fmt.Sprintf("Hi %s,\n\nYour returned book has been acknowledged successfully. Thank you!\n\n- Library Team",
+				user.Name),
+		)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		logEntry := map[string]interface{}{
+			"action":          "return_acknowledged",
+			"user_id":         user.ID,
+			"user_name":       user.Name,
+			"user_email":      user.Email,
+			"borrow_id":       req.BorrowID,
+			"acknowledged_by": librarianName,
+			"ack_email":       librarianEmail,
+			"time":            now,
+		}
+		if _, err := database.MongoClient.Database("library_portal_logging").
+			Collection("return_logs").InsertOne(ctx, logEntry); err != nil {
+			log.Printf("⚠️ Failed to insert return log: %v", err)
+		}
+	} else {
+		log.Printf("⚠️ Failed to fetch user for email: %v", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Book return acknowledged"})
