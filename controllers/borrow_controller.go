@@ -888,3 +888,86 @@ func GetMemberNotifications(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"notifications": messages})
 }
+
+func GetMemberOverview(c *gin.Context) {
+	userID := c.MustGet("userID").(uint)
+	userRole := c.MustGet("userRole").(int)
+
+	if userRole != 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only members can view this overview"})
+		return
+	}
+
+	db := database.DB
+
+	var totalBorrowed int64
+	var currentlyBorrowed int64
+	var overdueCount int
+	var totalReturnRequests int64
+	var acknowledgedReturns int64
+	var totalBooks int64
+
+	// 1. Total borrowed by user
+	db.Model(&models.BorrowRecord{}).Where("user_id = ?", userID).Count(&totalBorrowed)
+
+	// 2. Currently borrowed (not returned)
+	db.Model(&models.BorrowRecord{}).
+		Where("user_id = ? AND returned_at IS NULL", userID).
+		Count(&currentlyBorrowed)
+
+	// 3. Overdue books
+	var records []models.BorrowRecord
+	db.Preload("Book").Where("user_id = ? AND returned_at IS NULL", userID).Find(&records)
+	now := time.Now()
+	for _, rec := range records {
+		due := rec.BorrowedAt.AddDate(0, 0, rec.Book.OverdueDays)
+		if now.After(due) {
+			overdueCount++
+		}
+	}
+
+	// 4. Return requests made
+	db.Model(&models.BorrowRecord{}).
+		Where("user_id = ? AND return_requested = true", userID).
+		Count(&totalReturnRequests)
+
+	// 5. Acknowledged returns
+	db.Model(&models.BorrowRecord{}).
+		Where("user_id = ? AND returned_at IS NOT NULL", userID).
+		Count(&acknowledgedReturns)
+
+	// 6. Total books in library
+	db.Model(&models.Book{}).Count(&totalBooks)
+
+	// 7. Recent borrow records
+	var recentRecords []models.BorrowRecord
+	db.Preload("Book").
+		Where("user_id = ?", userID).
+		Order("borrowed_at DESC").
+		Limit(5).
+		Find(&recentRecords)
+
+	type Recent struct {
+		Title      string    `json:"title"`
+		BorrowedAt time.Time `json:"borrowed_at"`
+	}
+
+	recent := []Recent{}
+	for _, r := range recentRecords {
+		recent = append(recent, Recent{
+			Title:      r.Book.Title,
+			BorrowedAt: r.BorrowedAt,
+		})
+	}
+
+	// 🔄 Final response
+	c.JSON(http.StatusOK, gin.H{
+		"total_borrowed":        totalBorrowed,
+		"currently_borrowed":    currentlyBorrowed,
+		"overdue_books":         overdueCount,
+		"return_requested":      totalReturnRequests,
+		"acknowledged_returns":  acknowledgedReturns,
+		"total_books_available": totalBooks,
+		"recent_borrows":        recent,
+	})
+}
