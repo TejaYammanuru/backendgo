@@ -206,18 +206,30 @@ func BorrowRequest(c *gin.Context) {
 	}
 	log.Printf("📚 Book request received for BookID: %d\n", req.BookID)
 
-	// Check if book exists
 	var book models.Book
 	if err := database.DB.First(&book, req.BookID).Error; err != nil {
-		log.Printf("❌ Book not found with ID %d: %v\n", req.BookID, err)
+		log.Printf("Book not found with ID %d: %v\n", req.BookID, err)
 		c.JSON(http.StatusNotFound, gin.H{"error": "Book not found"})
 		return
 	}
-	log.Printf("✅ Book found: %s\n", book.Title)
+	log.Printf("Book found: %s\n", book.Title)
 
-	// Check for existing pending request
+	var activeBorrow models.BorrowRecord
+	err := database.DB.Where("user_id = ? AND book_id = ? AND returned_at IS NULL", userID, req.BookID).
+		First(&activeBorrow).Error
+	if err == nil {
+		log.Println("Book already borrowed and not yet returned")
+		c.JSON(http.StatusConflict, gin.H{"error": "You have already borrowed this book and haven't returned it yet"})
+		return
+	}
+	if err != gorm.ErrRecordNotFound {
+		log.Printf("Error checking active borrow: %v\n", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal error"})
+		return
+	}
+
 	var existingRequest models.BorrowRequest
-	err := database.DB.Where("user_id = ? AND book_id = ? AND status = ?", userID, req.BookID, "pending").
+	err = database.DB.Where("user_id = ? AND book_id = ? AND status = ?", userID, req.BookID, "pending").
 		First(&existingRequest).Error
 	if err == nil {
 		log.Println("⚠️ Duplicate pending request exists")
@@ -230,7 +242,7 @@ func BorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// Create request
+	// ✅ Create new borrow request
 	request := models.BorrowRequest{
 		UserID:      userID,
 		BookID:      req.BookID,
@@ -244,7 +256,7 @@ func BorrowRequest(c *gin.Context) {
 		return
 	}
 
-	// MongoDB log
+	// ✅ Log to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	logEntry := map[string]interface{}{
