@@ -625,14 +625,21 @@ func AcknowledgeReturn(c *gin.Context) {
 
 	tx.Commit()
 
+	var book models.Book
+	if err := database.DB.Select("id", "title").First(&book, record.BookID).Error; err != nil {
+		log.Printf("Failed to fetch book for ID %d: %v", record.BookID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch book details"})
+		return
+	}
+
 	var user models.User
 	if err := database.DB.Select("id", "name", "email").First(&user, record.UserID).Error; err == nil {
 
 		go utils.SendEmail(
 			user.Email,
 			"Book Return Acknowledged",
-			fmt.Sprintf("Hi %s,\n\nYour returned book has been acknowledged successfully. Thank you!\n\n- Library Team",
-				user.Name),
+			fmt.Sprintf("Hi %s,\n\nYour returned book %s has been acknowledged successfully. Thank you!\n\n- Library Team",
+				user.Name, book.Title),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -649,10 +656,10 @@ func AcknowledgeReturn(c *gin.Context) {
 		}
 		if _, err := database.MongoClient.Database("library_portal_logging").
 			Collection("return_logs").InsertOne(ctx, logEntry); err != nil {
-			log.Printf("⚠️ Failed to insert return log: %v", err)
+			log.Printf("Failed to insert return log: %v", err)
 		}
 	} else {
-		log.Printf("⚠️ Failed to fetch user for email: %v", err)
+		log.Printf("Failed to fetch user for email: %v", err)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Book return acknowledged"})
