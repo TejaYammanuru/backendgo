@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,71 +16,149 @@ import (
 )
 
 func BorrowingHistory(c *gin.Context) {
-	fmt.Println("BorrowingHistory handler called")
+	fmt.Println("📚 BorrowingHistory handler called")
 
 	userID := c.MustGet("userID").(uint)
 	userRole := c.MustGet("userRole").(int)
 
-	fmt.Println("UserID:", userID)
-	fmt.Println("UserRole:", userRole)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
 
+	var total int64
 	var records []models.BorrowRecord
 	var err error
+	query := database.DB.Preload("Book").
+		Preload("User", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name", "email", "jti", "role")
+		})
 
 	if userRole == 1 || userRole == 2 {
-		fmt.Println("Role is librarian, fetching all records")
+		fmt.Println("Role: Librarian/Admin - fetching all records")
 
-		err = database.DB.Preload("Book").
-			Preload("User", func(db *gorm.DB) *gorm.DB {
-				return db.Select("id", "name", "email", "jti", "role")
-			}).
-			Find(&records).Error
+		query.Model(&models.BorrowRecord{}).Count(&total)
+
+		err = query.Order("borrowed_at DESC").Offset(offset).Limit(limit).Find(&records).Error
 	} else {
-		fmt.Println("Role is member, fetching their own history")
-		err = database.DB.Preload("Book").
-			Preload("User", func(db *gorm.DB) *gorm.DB {
-				return db.Select("id", "name", "email", "jti", "role")
-			}).
+		fmt.Println(" Role: Member - fetching personal records")
+
+		query.Model(&models.BorrowRecord{}).
 			Where("user_id = ?", userID).
+			Count(&total)
+
+		err = query.Where("user_id = ?", userID).
+			Order("borrowed_at DESC").
+			Offset(offset).Limit(limit).
 			Find(&records).Error
 	}
 
 	if err != nil {
-		fmt.Println("Error fetching borrowing history:", err)
+		fmt.Println(" Error fetching borrowing history:", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not fetch borrowing history"})
 		return
 	}
 
-	fmt.Println("Fetched borrow records count:", len(records))
-	c.JSON(http.StatusOK, records)
+	fmt.Printf("Fetched %d borrow records (Page: %d, Limit: %d)\n", len(records), page, limit)
+
+	c.JSON(http.StatusOK, gin.H{
+		"total":   total,
+		"records": records,
+	})
 }
 
 func GetAllLibrarians(c *gin.Context) {
 	var librarians []models.User
+	var total int64
+
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+	if l := c.Query("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	if err := database.DB.
+		Model(&models.User{}).
+		Where("role = ?", 1).
+		Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count librarians"})
+		return
+	}
 
 	if err := database.DB.
 		Where("role = ?", 1).
 		Select("id", "name", "email", "jti", "created_at", "updated_at").
+		Limit(limit).
+		Offset(offset).
 		Find(&librarians).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch librarians"})
 		return
 	}
 
-	c.JSON(http.StatusOK, librarians)
+	c.JSON(http.StatusOK, gin.H{
+		"librarians": librarians,
+		"total":      total,
+		"page":       page,
+		"limit":      limit,
+	})
 }
 
 func GetAllMembers(c *gin.Context) {
 	var members []models.User
+	var total int64
+
+	page := 1
+	limit := 10
+
+	if p := c.Query("page"); p != "" {
+		if parsedPage, err := strconv.Atoi(p); err == nil && parsedPage > 0 {
+			page = parsedPage
+		}
+	}
+	if l := c.Query("limit"); l != "" {
+		if parsedLimit, err := strconv.Atoi(l); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	if err := database.DB.
+		Model(&models.User{}).
+		Where("role = ?", 0).
+		Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to count members"})
+		return
+	}
 
 	if err := database.DB.
 		Where("role = ?", 0).
 		Select("id", "name", "email", "jti", "created_at", "updated_at").
+		Limit(limit).
+		Offset(offset).
 		Find(&members).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch members"})
 		return
 	}
 
-	c.JSON(http.StatusOK, members)
+	c.JSON(http.StatusOK, gin.H{
+		"members": members,
+		"total":   total,
+		"page":    page,
+		"limit":   limit,
+	})
 }
 
 func GetAdminDashboard(c *gin.Context) {
