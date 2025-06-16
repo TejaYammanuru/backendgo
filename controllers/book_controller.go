@@ -333,10 +333,52 @@ func saveBase64Image(base64String string) (string, error) {
 	return "/" + filepath, nil
 }
 
+type PaginatedResponse struct {
+	Data       []models.Book `json:"data"`
+	Total      int64         `json:"total"`
+	Page       int           `json:"page"`
+	PageSize   int           `json:"page_size"`
+	TotalPages int           `json:"total_pages"`
+}
+
 func GetBooks(c *gin.Context) {
 	var books []models.Book
-	database.DB.Find(&books)
-	c.JSON(http.StatusOK, books)
+	var total int64
+
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("page_size", "10")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 {
+		pageSize = 10
+	}
+
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	offset := (page - 1) * pageSize
+
+	database.DB.Model(&models.Book{}).Count(&total)
+
+	database.DB.Offset(offset).Limit(pageSize).Find(&books)
+
+	totalPages := int((total + int64(pageSize) - 1) / int64(pageSize))
+
+	response := PaginatedResponse{
+		Data:       books,
+		Total:      total,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalPages: totalPages,
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func GetBook(c *gin.Context) {
